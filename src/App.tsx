@@ -20,6 +20,7 @@ import { Layer4AutonomicStudio } from './components/workspace/Layer4AutonomicStu
 import { AgentInspectorModal } from './components/modals/AgentInspectorModal';
 import { FileUploadModal } from './components/modals/FileUploadModal';
 import { CommandPaletteModal } from './components/modals/CommandPaletteModal';
+import { GoogleDriveModal } from './components/modals/GoogleDriveModal';
 
 export default function App() {
   // Layer State: 1 = Minimal Focus, 2 = State Manifold, 3 = Hyper-Deck
@@ -48,6 +49,7 @@ export default function App() {
   // Modals & Active Inspector
   const [inspectingAgent, setInspectingAgent] = useState<AgentRuntimeInstance | null>(null);
   const [isFileUploadOpen, setIsFileUploadOpen] = useState(false);
+  const [isGoogleDriveOpen, setIsGoogleDriveOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
   // Chat & Intelligence State
@@ -205,8 +207,13 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Send message to Intelligence in Layer 1 (With AI Studio context & model override support)
-  const handleSendMessage = async (text: string, customSystemInstruction?: string, modelOverride?: AiModelProvider) => {
+  // Send message to Intelligence in Layer 1 (With 4-Model Quad Arena & AI Studio support)
+  const handleSendMessage = async (
+    text: string, 
+    customSystemInstruction?: string, 
+    modelOverride?: AiModelProvider,
+    isQuadBroadcast: boolean = true
+  ) => {
     const activeModel = modelOverride || selectedModel;
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
@@ -221,35 +228,65 @@ export default function App() {
 
     try {
       const fileSummary = files.map((f) => `${f.name} (${f.size}B, H=${f.shannonEntropy})`).join(', ');
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: text,
-          systemInstruction: customSystemInstruction,
-          model: activeModel,
-          currentLayer,
-          activeAgentsCount: selectedAgentIds.length,
-          fileContext: fileSummary,
-        }),
-      });
+      
+      if (isQuadBroadcast) {
+        // Call 4-Model Parallel Arena API
+        const res = await fetch('/api/chat-quad', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: text,
+            fileContext: fileSummary,
+          }),
+        });
 
-      if (res.ok) {
-        const data = await res.json();
-        const assistantMsg: ChatMessage = {
-          id: `msg-resp-${Date.now()}`,
-          role: 'assistant',
-          content: data.content,
-          timestamp: new Date().toISOString(),
-          modelUsed: data.modelUsed || activeModel,
-          suggestedSwarm: data.suggestedSwarm,
-        };
-        setChatMessages((prev) => [...prev, assistantMsg]);
+        if (res.ok) {
+          const data = await res.json();
+          const assistantMsg: ChatMessage = {
+            id: `msg-quad-${Date.now()}`,
+            role: 'assistant',
+            content: '4-Model Parallel Arena Execution Completed.',
+            timestamp: new Date().toISOString(),
+            quadResponses: data.quadResponses,
+            epistemicArbiterVerdict: data.epistemicArbiterVerdict,
+            suggestedSwarm: data.suggestedSwarm,
+          };
+          setChatMessages((prev) => [...prev, assistantMsg]);
+        } else {
+          throw new Error('Quad API error');
+        }
       } else {
-        throw new Error('Chat API returned error');
+        // Single Model Execution
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: text,
+            systemInstruction: customSystemInstruction,
+            model: activeModel,
+            currentLayer,
+            activeAgentsCount: selectedAgentIds.length,
+            fileContext: fileSummary,
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          const assistantMsg: ChatMessage = {
+            id: `msg-resp-${Date.now()}`,
+            role: 'assistant',
+            content: data.content,
+            timestamp: new Date().toISOString(),
+            modelUsed: data.modelUsed || activeModel,
+            suggestedSwarm: data.suggestedSwarm,
+          };
+          setChatMessages((prev) => [...prev, assistantMsg]);
+        } else {
+          throw new Error('Chat API returned error');
+        }
       }
     } catch (err) {
-      // Graceful fallback
+      // Graceful fallback with quad comparison
       const fallbackMsg: ChatMessage = {
         id: `msg-resp-${Date.now()}`,
         role: 'assistant',
@@ -638,12 +675,14 @@ export default function App() {
               handleDispatchSwarm(goal, mode, true);
             }}
             onOpenFileUpload={() => setIsFileUploadOpen(true)}
+            onOpenGoogleDrive={() => setIsGoogleDriveOpen(true)}
             files={files}
             onRemoveFile={(id) => setFiles((prev) => prev.filter((f) => f.id !== id))}
             telemetry={telemetry}
             selectedModel={selectedModel}
             onSelectModel={setSelectedModel}
             onSwitchLayer={setCurrentLayer}
+            onClearChat={() => setChatMessages([])}
           />
         )}
 
@@ -701,6 +740,12 @@ export default function App() {
           isOpen={isFileUploadOpen}
           onClose={() => setIsFileUploadOpen(false)}
           onAddFile={(file) => setFiles((prev) => [...prev, file])}
+        />
+
+        <GoogleDriveModal
+          isOpen={isGoogleDriveOpen}
+          onClose={() => setIsGoogleDriveOpen(false)}
+          onIngestFile={(file) => setFiles((prev) => [...prev, file])}
         />
 
         <CommandPaletteModal

@@ -14,43 +14,106 @@ import {
   Zap,
   ArrowRight,
   Sliders,
-  Star,
   Columns,
   Maximize2,
   Minimize2,
-  Terminal,
+  HardDrive,
+  Award,
+  Crown,
+  BrainCircuit,
+  Target,
+  FileCode,
+  Copy,
+  Check,
+  Flame,
   Activity,
   Cpu,
-  BarChart3,
-  Flame,
-  Check,
-  AlertTriangle,
-  RotateCcw,
-  Copy,
-  ChevronDown,
-  ChevronUp
+  ChevronRight,
+  Info
 } from 'lucide-react';
 import { 
   ChatMessage, 
   IngestedFile, 
   StateManifoldTelemetry, 
   AiModelProvider,
-  SwarmDispatchMode 
+  SwarmDispatchMode,
+  QuadModelResponse,
+  FiveAxisScore
 } from '../../types';
+import { FiveAxisMatrix, AXIS_DEFINITIONS } from './FiveAxisMatrix';
 
 interface Layer1MinimalProps {
   messages: ChatMessage[];
-  onSendMessage: (text: string, customSystemInstruction?: string, modelOverride?: AiModelProvider) => Promise<void>;
+  onSendMessage: (
+    text: string, 
+    customSystemInstruction?: string, 
+    modelOverride?: AiModelProvider, 
+    isQuadBroadcast?: boolean
+  ) => Promise<void>;
   isLoading: boolean;
   onDeploySwarm: (goal: string, mode: SwarmDispatchMode, count: number) => void;
   onOpenFileUpload: () => void;
+  onOpenGoogleDrive: () => void;
   files: IngestedFile[];
   onRemoveFile: (fileId: string) => void;
   telemetry: StateManifoldTelemetry;
   selectedModel: AiModelProvider;
   onSelectModel: (m: AiModelProvider) => void;
   onSwitchLayer: (l: 1 | 2 | 3 | 4) => void;
+  onClearChat?: () => void;
 }
+
+export const QUAD_MODELS: Array<{
+  id: AiModelProvider;
+  name: string;
+  roleTag: string;
+  badge: string;
+  color: string;
+  borderCol: string;
+  bgGlow: string;
+  desc: string;
+}> = [
+  {
+    id: 'gemini-3.7-flash',
+    name: 'Gemini 3.7 Flash',
+    roleTag: 'HYPER-LATENCY & REASONING',
+    badge: 'FLASH-3.7',
+    color: 'text-blue-400',
+    borderCol: 'border-blue-500/30',
+    bgGlow: 'bg-blue-950/20',
+    desc: 'Ultra-low TTFT latency with integrated adaptive reasoning chains.'
+  },
+  {
+    id: 'gemini-3.1-pro-preview',
+    name: 'Gemini 3.1 Pro',
+    roleTag: 'EPISTEMIC & INVARIANT ARCHITECT',
+    badge: 'PRO-3.1',
+    color: 'text-purple-400',
+    borderCol: 'border-purple-500/30',
+    bgGlow: 'bg-purple-950/20',
+    desc: 'Deep causal reasoning, mathematical invariants & long-context memory.'
+  },
+  {
+    id: 'claude-3.7-sonnet',
+    name: 'Claude 3.7 Sonnet',
+    roleTag: 'HYBRID THOUGHT SYNTHESIS',
+    badge: 'SONNET-3.7',
+    color: 'text-amber-400',
+    borderCol: 'border-amber-500/30',
+    bgGlow: 'bg-amber-950/20',
+    desc: 'Granular step-by-step verification with strong code architecture.'
+  },
+  {
+    id: 'deepseek-r1-v3',
+    name: 'DeepSeek R1 / GPT-4o',
+    roleTag: 'REFLECTIVE REASONING PROOF',
+    badge: 'R1-PROOFS',
+    color: 'text-emerald-400',
+    borderCol: 'border-emerald-500/30',
+    bgGlow: 'bg-emerald-950/20',
+    desc: 'Self-correcting verification loops and formal symbolic proofs.'
+  }
+];
 
 export const Layer1Minimal: React.FC<Layer1MinimalProps> = ({
   messages,
@@ -58,28 +121,20 @@ export const Layer1Minimal: React.FC<Layer1MinimalProps> = ({
   isLoading,
   onDeploySwarm,
   onOpenFileUpload,
+  onOpenGoogleDrive,
   files,
   onRemoveFile,
   telemetry,
   selectedModel,
   onSelectModel,
   onSwitchLayer,
+  onClearChat
 }) => {
-  // AI Studio Prompt & Configuration State
   const [inputText, setInputText] = useState('');
-  const [systemInstruction, setSystemInstruction] = useState(
-    'You are ArgOS Apex, a high-performance governed multi-agent intelligence operating system. Always enforce zero-loss financial invariants, calculate Shannon entropy on workloads, and coordinate up to 20 specialized reasoning agents for complex objectives.'
-  );
-  const [isSystemInstructionOpen, setIsSystemInstructionOpen] = useState(false);
-  const [temperature, setTemperature] = useState(0.7);
-  const [topP, setTopP] = useState(0.95);
-  const [maxTokens, setMaxTokens] = useState(2048);
-  const [compareMode, setCompareMode] = useState(false);
-  const [secondaryModel, setSecondaryModel] = useState<AiModelProvider>('gemini-3.1-pro-preview');
-  const [activeTabLeft, setActiveTabLeft] = useState<'config' | 'context' | 'eval'>('config');
-
-  // Response Grading State (AI Studio Model Evaluation)
-  const [evalScores, setEvalScores] = useState<Record<string, { rating: number; factuality: boolean; invariant: boolean; notes: string }>>({});
+  const [isQuadBroadcast, setIsQuadBroadcast] = useState(true);
+  const [activeViewMode, setActiveViewMode] = useState<'quad' | 'unified' | 'arbiter'>('quad');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [activeModelTab, setActiveModelTab] = useState<number>(0);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -93,7 +148,7 @@ export const Layer1Minimal: React.FC<Layer1MinimalProps> = ({
     if (!inputText.trim() || isLoading) return;
     const text = inputText;
     setInputText('');
-    onSendMessage(text, systemInstruction, selectedModel);
+    onSendMessage(text, undefined, selectedModel, isQuadBroadcast);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -103,721 +158,573 @@ export const Layer1Minimal: React.FC<Layer1MinimalProps> = ({
     }
   };
 
-  const handleGrade = (msgId: string, rating: number) => {
-    setEvalScores((prev) => ({
-      ...prev,
-      [msgId]: {
-        ...(prev[msgId] || { factuality: true, invariant: true, notes: '' }),
-        rating,
-      },
-    }));
+  const handleCopy = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
   };
 
   const quickPrompts = [
     {
-      label: '⚡ Monte Carlo (8 Agents)',
-      prompt: 'Please set up a Monte Carlo of 8 agents to run parallel epistemic reconciliation on: "Design a zero-loss financial invariant gateway for high-frequency trades."',
-      mode: 'monte_carlo_consensus' as SwarmDispatchMode,
-      count: 8,
-    },
-    {
-      label: '🚀 Full Swarm (20 Agents)',
-      prompt: 'Deploy all 20 agents on a concentrated Monte Carlo swarm to analyze and optimize our high-consequence pipeline under failure-resilient improvisation.',
+      label: '⚡ Monte Carlo (20 Agents)',
+      prompt: 'Please set up a Monte Carlo of 20 agents to run parallel epistemic reconciliation on: "Design a zero-loss financial invariant gateway for high-frequency trades."',
       mode: 'monte_carlo_consensus' as SwarmDispatchMode,
       count: 20,
-    },
-    {
-      label: '🧩 Distributed Fleet Task',
-      prompt: 'Decompose this task across a distributed fleet: "Perform an end-to-end security audit, Shannon entropy calculation, and C-ABI validation."',
-      mode: 'heterogeneous_distributed' as SwarmDispatchMode,
-      count: 12,
     },
     {
       label: '🛡️ Invariant Check ($70 Floor)',
       prompt: 'Execute a governance check on current bankroll balance and verify that no transaction breaches the $70.00 reserve floor.',
       mode: 'monte_carlo_consensus' as SwarmDispatchMode,
-      count: 4,
+      count: 6,
+    },
+    {
+      label: '📊 5-Axis Model Benchmark',
+      prompt: 'Subject all 4 models to the 5-Axis grading matrix: Compare reasoning depth, invariant safety, TTFT velocity, factuality, and Shannon context fidelity.',
+      mode: 'monte_carlo_consensus' as SwarmDispatchMode,
+      count: 8,
+    },
+    {
+      label: '📂 Ingest Google Drive Asset',
+      prompt: 'Analyze our attached Google Drive dataset with 16-way Shannon entropy partitioning and synthesize an executive risk mitigation vector.',
+      mode: 'heterogeneous_distributed' as SwarmDispatchMode,
+      count: 12,
     },
   ];
 
-  // Calculated Real-Time Metrics for Top Half Analytics
-  const bankrollDollars = telemetry.budget_cents / 100;
-  const reserveFloorDollars = telemetry.reserve_floor_cents / 100;
-  const headroomDollars = bankrollDollars - reserveFloorDollars;
-  const safetyMarginPct = Math.max(0, Math.min(100, (headroomDollars / (telemetry.max_burst_cap_cents / 100)) * 100));
-  const estimatedThroughput = Math.floor(120 + (telemetry.active_nodes * 12));
-
   return (
-    <div id="layer-1-ai-studio-workspace" className="flex flex-col h-[calc(100vh-61px)] bg-transparent text-slate-100 overflow-hidden">
+    <div id="layer-1-ai-studio-workspace" className="flex flex-col h-[calc(100vh-61px)] bg-transparent text-slate-100 overflow-hidden font-sans">
       
       {/* ========================================================================= */}
-      {/* TOP HALF: SYSTEM ANALYTICS & LIVE TELEMETRY DECK (MEANINGFUL REAL METRICS) */}
+      {/* TOP HEADER: MINIMALIST STATUS & 4-MODEL ARENA CONTROLS                    */}
       {/* ========================================================================= */}
-      <div className="shrink-0 px-6 py-4 bg-slate-900/30 border-b border-white/10 backdrop-blur-2xl">
-        <div className="flex items-center justify-between pb-3 mb-3 border-b border-white/5 text-xs font-mono">
+      <div className="shrink-0 px-4 md:px-6 py-2.5 bg-slate-900/40 border-b border-white/10 backdrop-blur-2xl flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
+        
+        {/* Left: Mode Title & 4-Model Indicator */}
+        <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <Activity className="w-4 h-4 text-blue-400" />
+            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
             <span className="font-bold text-slate-100 uppercase tracking-wider">
-              System Invariant Telemetry & Real-Time Intelligence Engine
-            </span>
-            <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[10px]">
-              LIVE DETERMINISTIC MANIFOLD
+              ArgOS Level 9 Intelligence Arena
             </span>
           </div>
 
-          <div className="flex items-center gap-3 text-slate-400">
-            <span className="text-[11px]">Epoch <strong className="text-blue-400">#{telemetry.epoch}</strong></span>
-            <span>•</span>
-            <span className="text-[11px]">Canary: <strong className="text-emerald-400">{telemetry.canary_status.toUpperCase()}</strong></span>
-            <span>•</span>
+          <span className="hidden sm:inline-block px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-300 border border-blue-400/20 text-[10px]">
+            4-MODEL COMPARISON ARENA
+          </span>
+
+          <span className="hidden md:inline-block px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-300 border border-purple-400/20 text-[10px]">
+            5-AXIS GRADING MATRIX ACTIVE
+          </span>
+        </div>
+
+        {/* Right: Quick Controls (Google Drive, View Toggle, Invariants) */}
+        <div className="flex items-center gap-2.5">
+          {/* Google Drive Button */}
+          <button
+            onClick={onOpenGoogleDrive}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-slate-300 hover:text-blue-300 transition-colors text-[11px]"
+            title="Open Google Drive File Browser & Ingestion"
+          >
+            <HardDrive className="w-3.5 h-3.5 text-blue-400" />
+            <span>Google Drive</span>
+          </button>
+
+          {/* Context Assets Pill */}
+          <button
+            onClick={onOpenFileUpload}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-slate-300 hover:text-purple-300 transition-colors text-[11px]"
+          >
+            <FileText className="w-3.5 h-3.5 text-purple-400" />
+            <span>Assets ({files.length})</span>
+          </button>
+
+          {/* 4-Way Broadcast Toggle */}
+          <button
+            onClick={() => setIsQuadBroadcast(!isQuadBroadcast)}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-[11px] font-bold transition-all ${
+              isQuadBroadcast
+                ? 'bg-blue-600/25 text-blue-200 border-blue-400/40 shadow-sm'
+                : 'bg-white/[0.04] text-slate-400 border-white/10'
+            }`}
+            title="Toggle whether prompts broadcast to all 4 models in parallel"
+          >
+            <Columns className="w-3.5 h-3.5" />
+            <span>{isQuadBroadcast ? '4-Way Broadcast ON' : 'Single Target'}</span>
+          </button>
+
+          {/* Invariant Balance pill */}
+          <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/20 border border-emerald-500/30 text-emerald-300 text-[11px]">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>${(telemetry.budget_cents / 100).toFixed(2)} ($70 Floor)</span>
+          </div>
+
+          {messages.length > 0 && onClearChat && (
             <button
-              onClick={() => onSwitchLayer(2)}
-              className="flex items-center gap-1 text-blue-400 hover:text-blue-300 text-[11px] font-semibold transition-colors"
+              onClick={onClearChat}
+              className="p-1 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-white/[0.04] transition-colors"
+              title="Clear Arena History"
             >
-              <span>Full Telemetry (L2)</span>
-              <ArrowRight className="w-3 h-3" />
+              <Trash2 className="w-3.5 h-3.5" />
             </button>
-          </div>
+          )}
         </div>
 
-        {/* 4 Core Meaningful Analytics Widgets */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 font-mono text-xs">
-          
-          {/* 1. Real-Time Token Throughput & Latency */}
-          <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/10 backdrop-blur-xl shadow-lg flex flex-col justify-between space-y-2">
-            <div className="flex items-center justify-between text-[11px] text-slate-400">
-              <span className="flex items-center gap-1.5 font-semibold text-slate-300">
-                <Cpu className="w-3.5 h-3.5 text-blue-400" />
-                Token Velocity & TTFT
-              </span>
-              <span className="text-[10px] text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded">P95: {telemetry.cpu_latency_ns * 8}ms</span>
-            </div>
-            <div>
-              <div className="text-xl font-bold text-slate-100 flex items-baseline gap-1.5">
-                <span>{estimatedThroughput}</span>
-                <span className="text-xs font-normal text-slate-400">tokens/sec</span>
-              </div>
-              <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
-                <span>Time-To-First-Token: <strong>16ms</strong></span>
-                <span>Burst Active: <strong>{telemetry.active_nodes} Nodes</strong></span>
-              </div>
-            </div>
-            <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${Math.min(100, estimatedThroughput / 2)}%` }} />
-            </div>
-          </div>
-
-          {/* 2. Invariant & Stop-Loss Financial Boundary */}
-          <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/10 backdrop-blur-xl shadow-lg flex flex-col justify-between space-y-2">
-            <div className="flex items-center justify-between text-[11px] text-slate-400">
-              <span className="flex items-center gap-1.5 font-semibold text-slate-300">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                Invariant Reserve Floor
-              </span>
-              <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">0 Violations</span>
-            </div>
-            <div>
-              <div className="text-xl font-bold text-emerald-300 flex items-baseline justify-between">
-                <span>${bankrollDollars.toFixed(2)}</span>
-                <span className="text-xs font-normal text-slate-400">Floor: ${reserveFloorDollars.toFixed(2)}</span>
-              </div>
-              <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
-                <span>Safety Headroom: <strong>+${headroomDollars.toFixed(2)}</strong></span>
-                <span>Saved: <strong className="text-emerald-400">${(telemetry.total_cents_saved / 100).toFixed(2)}</strong></span>
-              </div>
-            </div>
-            <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full bg-emerald-400 rounded-full transition-all" style={{ width: `${safetyMarginPct}%` }} />
-            </div>
-          </div>
-
-          {/* 3. Shannon Entropy & Compression Stratum */}
-          <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/10 backdrop-blur-xl shadow-lg flex flex-col justify-between space-y-2">
-            <div className="flex items-center justify-between text-[11px] text-slate-400">
-              <span className="flex items-center gap-1.5 font-semibold text-slate-300">
-                <BarChart3 className="w-3.5 h-3.5 text-purple-400" />
-                Workload Shannon Entropy
-              </span>
-              <span className="text-[10px] text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded">H = {telemetry.shannon_entropy}</span>
-            </div>
-            <div>
-              <div className="text-xl font-bold text-purple-300 flex items-baseline gap-1.5">
-                <span>93.6%</span>
-                <span className="text-xs font-normal text-slate-400">bandwidth compression</span>
-              </div>
-              <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
-                <span>16-Way Slices: <strong>{files.length * 16 || 16} Slices</strong></span>
-                <span>Loss: <strong>0.00% (Bit-Perfect)</strong></span>
-              </div>
-            </div>
-            <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full bg-purple-400 rounded-full transition-all" style={{ width: '93.6%' }} />
-            </div>
-          </div>
-
-          {/* 4. Swarm Quorum & Consensus Probability */}
-          <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/10 backdrop-blur-xl shadow-lg flex flex-col justify-between space-y-2">
-            <div className="flex items-center justify-between text-[11px] text-slate-400">
-              <span className="flex items-center gap-1.5 font-semibold text-slate-300">
-                <Flame className="w-3.5 h-3.5 text-amber-400" />
-                Consensus Probability
-              </span>
-              <span className="text-[10px] text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">20-Node Fleet</span>
-            </div>
-            <div>
-              <div className="text-xl font-bold text-amber-300 flex items-baseline gap-1.5">
-                <span>96.5%</span>
-                <span className="text-xs font-normal text-slate-400">epistemic agreement</span>
-              </div>
-              <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
-                <span>Red-Team Disputes: <strong>100% Resolved</strong></span>
-                <span>Self-Repair: <strong>Enabled</strong></span>
-              </div>
-            </div>
-            <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full bg-amber-400 rounded-full transition-all" style={{ width: '96.5%' }} />
-            </div>
-          </div>
-
-        </div>
       </div>
 
       {/* ========================================================================= */}
-      {/* BOTTOM HALF: DUAL-PANE AI STUDIO WORKSPACE (SIDE-BY-SIDE PROMPT & CHAT) */}
+      {/* MAIN ARENA BODY: CHAT STREAM & 4-COLUMN SIDE-BY-SIDE MODEL VIEW           */}
       {/* ========================================================================= */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-0 overflow-hidden">
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
         
-        {/* ----------------------------------------------------------------------- */}
-        {/* LEFT PANE: SYSTEM INSTRUCTIONS, TUNING & CONTEXT GRADING DECK (5 cols)  */}
-        {/* ----------------------------------------------------------------------- */}
-        <div className="lg:col-span-5 flex flex-col h-full border-r border-white/10 bg-slate-900/20 backdrop-blur-xl overflow-y-auto p-4 md:p-5 space-y-4 font-mono text-xs">
-          
-          {/* Left Pane Sub-Tabs */}
-          <div className="flex items-center justify-between bg-white/[0.04] p-1 rounded-xl border border-white/10">
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setActiveTabLeft('config')}
-                className={`px-3 py-1 rounded-lg text-[11px] font-semibold transition-all ${
-                  activeTabLeft === 'config'
-                    ? 'bg-blue-600/30 text-blue-200 border border-blue-400/30'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Model & Tuning
-              </button>
-              <button
-                onClick={() => setActiveTabLeft('context')}
-                className={`px-3 py-1 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1 ${
-                  activeTabLeft === 'context'
-                    ? 'bg-blue-600/30 text-blue-200 border border-blue-400/30'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <span>Context & Assets</span>
-                {files.length > 0 && (
-                  <span className="w-4 h-4 rounded-full bg-blue-500 text-slate-950 text-[9px] flex items-center justify-center font-bold">
-                    {files.length}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => setActiveTabLeft('eval')}
-                className={`px-3 py-1 rounded-lg text-[11px] font-semibold transition-all ${
-                  activeTabLeft === 'eval'
-                    ? 'bg-blue-600/30 text-blue-200 border border-blue-400/30'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Grading & Eval
-              </button>
+        {/* EMPTY STATE / HERO BANNER */}
+        {messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center min-h-[50vh] text-center space-y-6 max-w-5xl mx-auto py-8">
+            
+            {/* Minimalist Glowing Badge */}
+            <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-600/15 border border-blue-400/30 text-blue-300 text-xs font-mono shadow-lg backdrop-blur-xl">
+              <Sparkles className="w-4 h-4 text-blue-400" />
+              <span>ArgOS Level 9 Intelligence & 5-Axis Model Grading Matrix</span>
             </div>
 
-            {/* Compare Mode Toggle */}
-            <button
-              onClick={() => setCompareMode((prev) => !prev)}
-              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all flex items-center gap-1 ${
-                compareMode
-                  ? 'bg-purple-600/30 text-purple-200 border-purple-400/40 shadow-sm'
-                  : 'bg-white/[0.04] text-slate-400 border-white/10 hover:text-slate-200'
-              }`}
-              title="Compare 2 models side-by-side like AI Studio"
-            >
-              <Columns className="w-3 h-3" />
-              <span>{compareMode ? 'Compare ON' : 'Compare'}</span>
-            </button>
-          </div>
+            <div className="space-y-2 max-w-2xl">
+              <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-100 font-sans">
+                Minimalist Orchestration & 4-Model Parallel Arena
+              </h2>
+              <p className="text-xs md:text-sm text-slate-400 leading-relaxed font-mono">
+                Ask ArgOS anything, command 20-agent Monte Carlo swarms, or evaluate 4 frontier models side-by-side graded autonomously on 5 epistemic axes.
+              </p>
+            </div>
 
-          {/* TAB 1: SYSTEM INSTRUCTIONS & PARAMETER TUNING */}
-          {activeTabLeft === 'config' && (
-            <div className="space-y-4">
-              
-              {/* Collapsible System Instructions */}
-              <div className="space-y-1.5 p-3 rounded-2xl bg-white/[0.03] border border-white/10">
-                <div 
-                  className="flex items-center justify-between cursor-pointer select-none"
-                  onClick={() => setIsSystemInstructionOpen(!isSystemInstructionOpen)}
+            {/* 4 Models Preview Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 w-full text-left font-mono text-xs">
+              {QUAD_MODELS.map((m) => (
+                <div
+                  key={m.id}
+                  onClick={() => onSelectModel(m.id)}
+                  className={`p-3.5 rounded-2xl border transition-all cursor-pointer group ${
+                    selectedModel === m.id
+                      ? `${m.bgGlow} ${m.borderCol} shadow-lg ring-1 ring-white/10`
+                      : 'bg-white/[0.02] border-white/10 hover:border-white/20 hover:bg-white/[0.04]'
+                  }`}
                 >
-                  <span className="font-bold text-slate-300 text-xs flex items-center gap-1.5">
-                    <Sliders className="w-3.5 h-3.5 text-blue-400" />
-                    System Instructions
-                  </span>
-                  <div className="flex items-center gap-1 text-[10px] text-slate-400">
-                    <span>{systemInstruction.length} chars</span>
-                    {isSystemInstructionOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5">
+                    <span className={`font-bold text-xs ${m.color}`}>{m.name}</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 text-slate-400">{m.badge}</span>
+                  </div>
+                  <div className="text-[10px] text-slate-400 leading-relaxed font-sans line-clamp-2">
+                    {m.desc}
+                  </div>
+                  <div className="mt-2.5 pt-2 border-t border-white/5 flex items-center justify-between text-[10px] text-slate-500">
+                    <span>{m.roleTag}</span>
+                    <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
                   </div>
                 </div>
+              ))}
+            </div>
 
-                {isSystemInstructionOpen ? (
-                  <textarea
-                    value={systemInstruction}
-                    onChange={(e) => setSystemInstruction(e.target.value)}
-                    rows={4}
-                    className="w-full mt-2 bg-black/30 border border-white/10 rounded-xl p-2.5 text-xs font-mono text-slate-200 focus:border-blue-400/50 outline-none resize-y"
-                    placeholder="Enter persistent system prompt directives..."
-                  />
-                ) : (
-                  <p className="text-[11px] text-slate-400 line-clamp-2 mt-1 italic">
-                    "{systemInstruction}"
-                  </p>
-                )}
+            {/* 5 Evaluative Axes Preview Cards */}
+            <div className="w-full p-4 rounded-2xl bg-white/[0.02] border border-white/10 backdrop-blur-xl">
+              <div className="flex items-center justify-between pb-2 mb-3 border-b border-white/5 text-xs font-mono">
+                <span className="font-bold text-slate-300 flex items-center gap-1.5">
+                  <Award className="w-4 h-4 text-amber-400" />
+                  The 5-Axis Model Grading Matrix:
+                </span>
+                <span className="text-[10px] text-slate-500">RLHF & Epistemic Verification Engine</span>
               </div>
+              
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 text-left font-mono text-xs">
+                {AXIS_DEFINITIONS.map((axis) => {
+                  const Icon = axis.icon;
+                  return (
+                    <div key={axis.key} className="p-2.5 rounded-xl bg-black/30 border border-white/5 space-y-1">
+                      <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-200">
+                        <Icon className={`w-3.5 h-3.5 ${axis.color}`} />
+                        <span>{axis.shortLabel}</span>
+                      </div>
+                      <p className="text-[9px] text-slate-400 line-clamp-2 font-sans">
+                        {axis.description}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
 
-              {/* Primary Model Selector */}
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider flex items-center justify-between">
-                  <span>Active Primary Model</span>
-                  <span className="text-[10px] text-blue-400 font-normal">Multi-Modal Capable</span>
-                </label>
-                <div className="flex items-center gap-2 p-2.5 bg-white/[0.04] border border-white/10 rounded-2xl">
-                  <Bot className="w-4 h-4 text-blue-400 shrink-0" />
-                  <select
-                    value={selectedModel}
-                    onChange={(e) => onSelectModel(e.target.value as AiModelProvider)}
-                    className="w-full bg-transparent text-slate-100 text-xs font-mono outline-none cursor-pointer"
+            {/* Quick Action Invocations */}
+            <div className="w-full space-y-2">
+              <div className="text-xs font-mono text-slate-400 font-bold uppercase tracking-wider text-left">
+                Direct Substrate Commands:
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 font-mono text-xs">
+                {quickPrompts.map((qp, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      setInputText(qp.prompt);
+                      textareaRef.current?.focus();
+                    }}
+                    className="p-3 rounded-2xl bg-white/[0.02] hover:bg-white/[0.06] border border-white/10 hover:border-blue-400/40 text-left transition-all group flex flex-col justify-between"
                   >
-                    <option value="gemini-3.7-flash" className="bg-slate-900 text-slate-200">Gemini 3.7 Flash (Ultra Low Latency + Reasoning)</option>
-                    <option value="gemini-3.1-pro-preview" className="bg-slate-900 text-slate-200">Gemini 3.1 Pro (Deep Complex Reasoning)</option>
-                    <option value="claude-3.7-sonnet" className="bg-slate-900 text-slate-200">Claude 3.7 Sonnet (Hybrid Architecture)</option>
-                    <option value="gpt-4o" className="bg-slate-900 text-slate-200">GPT-4o (Omni Modality)</option>
-                    <option value="deepseek-r1-v3" className="bg-slate-900 text-slate-200">DeepSeek R1 / V3 (Reflective Reasoning)</option>
-                  </select>
-                </div>
+                    <div className="font-bold text-blue-300 group-hover:text-blue-200 text-xs mb-1">
+                      {qp.label}
+                    </div>
+                    <div className="text-[10px] text-slate-400 line-clamp-2 font-sans">
+                      {qp.prompt}
+                    </div>
+                  </button>
+                ))}
               </div>
+            </div>
 
-              {/* Secondary Model Selector (When Compare Mode is active) */}
-              {compareMode && (
-                <div className="space-y-1.5 p-3 rounded-2xl bg-purple-950/20 border border-purple-500/30 animate-in fade-in">
-                  <label className="text-[11px] font-bold text-purple-300 uppercase tracking-wider flex items-center justify-between">
-                    <span>Comparison Model (Model B)</span>
-                    <span className="text-[10px] text-purple-400">Side-by-Side</span>
-                  </label>
-                  <div className="flex items-center gap-2 p-2 bg-black/30 border border-white/10 rounded-xl">
-                    <Bot className="w-4 h-4 text-purple-400 shrink-0" />
-                    <select
-                      value={secondaryModel}
-                      onChange={(e) => setSecondaryModel(e.target.value as AiModelProvider)}
-                      className="w-full bg-transparent text-purple-200 text-xs font-mono outline-none cursor-pointer"
-                    >
-                      <option value="gemini-3.1-pro-preview" className="bg-slate-900 text-slate-200">Gemini 3.1 Pro</option>
-                      <option value="gemini-3.7-flash" className="bg-slate-900 text-slate-200">Gemini 3.7 Flash</option>
-                      <option value="claude-3.7-sonnet" className="bg-slate-900 text-slate-200">Claude 3.7 Sonnet</option>
-                      <option value="gpt-4o" className="bg-slate-900 text-slate-200">GPT-4o</option>
-                      <option value="deepseek-r1-v3" className="bg-slate-900 text-slate-200">DeepSeek R1</option>
-                    </select>
+          </div>
+        ) : (
+          /* MULTI-TURN MESSAGE THREAD WITH 4-MODEL SIDE-BY-SIDE CARDS */
+          messages.map((msg, index) => (
+            <div key={msg.id} className="space-y-3 font-mono text-xs">
+              
+              {/* User Prompt Bubble */}
+              {msg.role === 'user' && (
+                <div className="flex justify-end">
+                  <div className="max-w-[85%] sm:max-w-[75%] p-4 rounded-3xl bg-blue-600/25 border border-blue-400/40 text-blue-100 rounded-tr-none shadow-xl backdrop-blur-2xl space-y-1.5">
+                    <div className="flex items-center justify-between text-[10px] text-blue-300 pb-1 border-b border-blue-400/20">
+                      <span className="font-bold">OPERATOR / HUMAN IN THE LOOP</span>
+                      <span>{new Date(msg.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                    <div className="text-xs sm:text-sm whitespace-pre-wrap font-sans font-medium leading-relaxed">
+                      {msg.content}
+                    </div>
                   </div>
                 </div>
               )}
 
-              {/* Parameter Sliders: Temperature, Top-P, Max Tokens */}
-              <div className="space-y-3 p-3.5 rounded-2xl bg-white/[0.03] border border-white/10">
-                {/* Temperature */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-slate-300">Temperature</span>
-                    <span className="text-blue-400 font-bold">{temperature.toFixed(2)}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={temperature}
-                    onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                    className="w-full accent-blue-500 cursor-pointer h-1.5 bg-white/10 rounded-lg"
-                  />
-                  <div className="flex justify-between text-[9px] text-slate-500">
-                    <span>Precise / Deterministic (0.0)</span>
-                    <span>Creative / High Entropy (1.0)</span>
-                  </div>
-                </div>
+              {/* Assistant / Swarm / 4-Model Response Body */}
+              {msg.role === 'assistant' && (
+                <div className="space-y-4">
+                  
+                  {/* Message Header */}
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+                    <div className="flex items-center gap-2">
+                      <Bot className="w-4 h-4 text-blue-400" />
+                      <span className="font-bold text-slate-200">
+                        {msg.quadResponses ? '4-Model Parallel Arena Stream' : (msg.modelUsed || 'ArgOS Orchestration Engine')}
+                      </span>
+                      <span className="text-[10px] text-slate-500">• {new Date(msg.timestamp).toLocaleTimeString()}</span>
+                    </div>
 
-                {/* Top-P */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-slate-300">Top-P</span>
-                    <span className="text-blue-400 font-bold">{topP.toFixed(2)}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0.1"
-                    max="1"
-                    step="0.05"
-                    value={topP}
-                    onChange={(e) => setTopP(parseFloat(e.target.value))}
-                    className="w-full accent-blue-500 cursor-pointer h-1.5 bg-white/10 rounded-lg"
-                  />
-                </div>
-
-                {/* Max Tokens */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-slate-300">Max Output Tokens</span>
-                    <span className="text-blue-400 font-bold">{maxTokens}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="256"
-                    max="8192"
-                    step="256"
-                    value={maxTokens}
-                    onChange={(e) => setMaxTokens(parseInt(e.target.value, 10))}
-                    className="w-full accent-blue-500 cursor-pointer h-1.5 bg-white/10 rounded-lg"
-                  />
-                </div>
-              </div>
-
-              {/* Quick Template Prompts */}
-              <div className="space-y-2">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Quick Substrate Invocations:
-                </span>
-                <div className="grid grid-cols-1 gap-2">
-                  {quickPrompts.map((qp, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setInputText(qp.prompt)}
-                      className="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 hover:border-blue-400/40 hover:bg-white/[0.06] text-left transition-all group"
-                    >
-                      <div className="font-semibold text-blue-300 group-hover:text-blue-200 text-[11px]">
-                        {qp.label}
+                    {msg.quadResponses && (
+                      <div className="flex items-center gap-1.5 bg-white/[0.04] p-0.5 rounded-lg border border-white/10 text-[10px]">
+                        <button
+                          onClick={() => setActiveViewMode('quad')}
+                          className={`px-2 py-0.5 rounded-md font-semibold transition-all ${
+                            activeViewMode === 'quad' ? 'bg-blue-600/30 text-blue-200' : 'text-slate-400'
+                          }`}
+                        >
+                          4 Columns
+                        </button>
+                        <button
+                          onClick={() => setActiveViewMode('unified')}
+                          className={`px-2 py-0.5 rounded-md font-semibold transition-all ${
+                            activeViewMode === 'unified' ? 'bg-blue-600/30 text-blue-200' : 'text-slate-400'
+                          }`}
+                        >
+                          Tabbed
+                        </button>
                       </div>
-                      <div className="text-[10px] text-slate-400 truncate mt-0.5">
-                        {qp.prompt}
+                    )}
+                  </div>
+
+                  {/* IF 4 QUAD RESPONSES ARE PRESENT: RENDER 4 SIDE-BY-SIDE COLUMNS */}
+                  {msg.quadResponses && msg.quadResponses.length > 0 ? (
+                    <div>
+                      {/* View Mode: 4 Columns (Desktop Grid) */}
+                      {activeViewMode === 'quad' ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3.5">
+                          {msg.quadResponses.map((qr, qIdx) => {
+                            const isWinner = msg.epistemicArbiterVerdict?.winnerModelId === qr.modelId;
+                            return (
+                              <div
+                                key={qr.modelId}
+                                className={`rounded-3xl border flex flex-col justify-between overflow-hidden shadow-2xl backdrop-blur-2xl transition-all ${
+                                  isWinner
+                                    ? 'bg-blue-950/25 border-blue-400/40 ring-1 ring-blue-400/30'
+                                    : 'bg-white/[0.03] border-white/10'
+                                }`}
+                              >
+                                {/* Column Model Header */}
+                                <div className="p-3.5 border-b border-white/10 bg-white/[0.02] flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    {isWinner && <Crown className="w-4 h-4 text-amber-400" />}
+                                    <div>
+                                      <div className="font-bold text-xs text-slate-100 flex items-center gap-1.5">
+                                        <span className={qr.color}>{qr.name}</span>
+                                      </div>
+                                      <div className="text-[9px] text-slate-400 uppercase">{qr.roleTag}</div>
+                                    </div>
+                                  </div>
+
+                                  <div className="text-right text-[10px] text-slate-400">
+                                    <div className="text-blue-400 font-bold">{qr.latencyMs}ms</div>
+                                    <div className="text-[9px] text-slate-500">{qr.throughputTps} t/s</div>
+                                  </div>
+                                </div>
+
+                                {/* Content Stream */}
+                                <div className="p-4 text-xs font-mono text-slate-200 leading-relaxed whitespace-pre-wrap max-h-[360px] overflow-y-auto flex-1">
+                                  {qr.content}
+                                </div>
+
+                                {/* Integrated 5-Axis Model Grading Matrix Component */}
+                                <div className="p-2.5 border-t border-white/10 bg-black/20 space-y-2">
+                                  <FiveAxisMatrix
+                                    score={qr.scores}
+                                    modelName={qr.name}
+                                    modelBadge={qr.badge}
+                                    interactive={true}
+                                    compact={true}
+                                  />
+
+                                  <div className="flex items-center justify-between pt-1 text-[10px] text-slate-400">
+                                    <span className="text-emerald-400 flex items-center gap-1">
+                                      <CheckCircle2 className="w-3 h-3" /> Invariant Safe
+                                    </span>
+                                    <button
+                                      onClick={() => handleCopy(qr.content, `qr-${msg.id}-${qIdx}`)}
+                                      className="flex items-center gap-1 text-slate-400 hover:text-slate-200 transition-colors"
+                                    >
+                                      {copiedId === `qr-${msg.id}-${qIdx}` ? (
+                                        <Check className="w-3 h-3 text-emerald-400" />
+                                      ) : (
+                                        <Copy className="w-3 h-3" />
+                                      )}
+                                      <span>{copiedId === `qr-${msg.id}-${qIdx}` ? 'Copied' : 'Copy'}</span>
+                                    </button>
+                                  </div>
+                                </div>
+
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        /* Tabbed View on Smaller Screens */
+                        <div className="rounded-3xl border border-white/10 bg-white/[0.03] overflow-hidden shadow-2xl backdrop-blur-2xl">
+                          <div className="flex border-b border-white/10 bg-black/30 overflow-x-auto">
+                            {msg.quadResponses.map((qr, tIdx) => (
+                              <button
+                                key={qr.modelId}
+                                onClick={() => setActiveModelTab(tIdx)}
+                                className={`px-4 py-2.5 text-xs font-mono font-semibold transition-all border-b-2 flex items-center gap-2 shrink-0 ${
+                                  activeModelTab === tIdx
+                                    ? 'border-blue-400 text-blue-200 bg-white/[0.04]'
+                                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                                }`}
+                              >
+                                <span>{qr.name}</span>
+                                <span className="text-[10px] text-slate-500">({qr.scores.compositeScore}/100)</span>
+                              </button>
+                            ))}
+                          </div>
+
+                          {msg.quadResponses[activeModelTab] && (
+                            <div className="p-4 space-y-4">
+                              <div className="text-xs font-mono text-slate-200 leading-relaxed whitespace-pre-wrap">
+                                {msg.quadResponses[activeModelTab].content}
+                              </div>
+                              <FiveAxisMatrix
+                                score={msg.quadResponses[activeModelTab].scores}
+                                modelName={msg.quadResponses[activeModelTab].name}
+                                modelBadge={msg.quadResponses[activeModelTab].badge}
+                                interactive={true}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* 5-Axis Epistemic Arbiter Consolidated Verdict */}
+                      {msg.epistemicArbiterVerdict && (
+                        <div className="p-4 rounded-3xl bg-gradient-to-r from-blue-950/30 to-purple-950/30 border border-blue-400/30 shadow-xl backdrop-blur-2xl space-y-2">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-bold text-amber-300 flex items-center gap-2">
+                              <Crown className="w-4 h-4 text-amber-400" />
+                              5-Axis Epistemic Arbiter Consensus: Winner [{msg.epistemicArbiterVerdict.winnerModelName}]
+                            </span>
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px]">
+                              GOVERNOR INVARIANT APPROVED
+                            </span>
+                          </div>
+
+                          <p className="text-xs text-slate-200 leading-relaxed font-sans">
+                            {msg.epistemicArbiterVerdict.consensusSummary}
+                          </p>
+
+                          <div className="text-[11px] text-slate-400 font-mono pt-1 border-t border-white/10">
+                            <strong>5-Axis Proof</strong>: {msg.epistemicArbiterVerdict.axisBreakdown}
+                          </div>
+                        </div>
+                      )}
+
+                    </div>
+                  ) : (
+                    /* Standard Single / Orchestrator Message Bubble */
+                    <div className="p-4 rounded-3xl bg-white/[0.04] text-slate-200 border border-white/10 rounded-tl-none shadow-xl backdrop-blur-2xl space-y-3 font-mono">
+                      <div className="text-xs sm:text-sm whitespace-pre-wrap leading-relaxed">
+                        {msg.content}
                       </div>
-                    </button>
-                  ))}
+
+                      {/* Grading Matrix if attached */}
+                      {msg.grading && (
+                        <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[11px] text-slate-400">
+                          <span className="text-emerald-400 flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Invariant Verified Safe
+                          </span>
+                          <span className="text-blue-400 font-bold">Grade: {msg.grading.accuracyScore}/5</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Swarm Deployment Suggestion Trigger */}
+                  {msg.suggestedSwarm && (
+                    <div className="p-3.5 rounded-2xl bg-black/30 border border-white/10 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-xs">
+                        <Sparkles className="w-4 h-4 text-blue-400" />
+                        <span className="font-bold text-slate-200">
+                          Ready to deploy {msg.suggestedSwarm.agentCount}-agent Swarm on this task?
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() =>
+                            onDeploySwarm(
+                              messages[index - 1]?.content || 'Execute Mission Objective',
+                              msg.suggestedSwarm!.mode,
+                              msg.suggestedSwarm!.agentCount
+                            )
+                          }
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold shadow-md border border-blue-400/30 transition-all active:scale-95"
+                        >
+                          <Play className="w-3.5 h-3.5" />
+                          <span>Deploy {msg.suggestedSwarm.agentCount} Agents (L3)</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                 </div>
-              </div>
+              )}
 
             </div>
-          )}
+          ))
+        )}
 
-          {/* TAB 2: INGESTED CONTEXT & ATTACHED WORKLOADS */}
-          {activeTabLeft === 'context' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-slate-200 text-xs">Attached Workload Capsules</span>
+        {isLoading && (
+          <div className="p-4 rounded-2xl bg-white/[0.04] border border-white/10 flex items-center gap-3 text-xs font-mono text-slate-300 shadow-xl backdrop-blur-xl">
+            <RefreshCw className="w-4 h-4 text-blue-400 animate-spin shrink-0" />
+            <div className="space-y-0.5">
+              <div className="font-semibold text-slate-100">
+                {isQuadBroadcast 
+                  ? 'Broadcasting to all 4 models & synthesizing 5-Axis Grading Matrix...' 
+                  : `Synthesizing reasoning with ${selectedModel}...`}
+              </div>
+              <div className="text-[10px] text-slate-400">
+                Evaluating chain-of-thought, zero-loss invariant bounds & Shannon entropy...
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div ref={chatEndRef} />
+      </div>
+
+      {/* ========================================================================= */}
+      {/* BOTTOM CHAT CONSOLE: SPACIOUS, PROMINENT, LEVEL-9 WORKSPACE INPUT AREA     */}
+      {/* ========================================================================= */}
+      <div className="shrink-0 p-4 md:p-5 bg-slate-900/50 border-t border-white/10 backdrop-blur-2xl">
+        <form onSubmit={handleSubmit} className="max-w-5xl mx-auto space-y-2.5">
+          
+          {/* Main Rounded Input Frame */}
+          <div className="flex flex-col bg-slate-950/70 border border-white/15 focus-within:border-blue-400/60 focus-within:ring-2 focus-within:ring-blue-500/20 rounded-3xl p-3 md:p-4 shadow-2xl backdrop-blur-2xl transition-all">
+            
+            {/* Multiline Textarea with Full Visibility */}
+            <textarea
+              ref={textareaRef}
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder='Talk to the orchestration or 5-Axis matrix: "Set up a Monte Carlo of 20 agents for this task..." (Shift+Enter for newline)'
+              rows={3}
+              className="w-full bg-transparent text-slate-100 placeholder-slate-500 text-xs sm:text-sm font-mono outline-none resize-none px-1 leading-relaxed min-h-[70px]"
+              disabled={isLoading}
+            />
+
+            {/* Bottom Action Tray */}
+            <div className="flex flex-wrap items-center justify-between pt-2.5 border-t border-white/10 mt-2 gap-2 text-xs font-mono">
+              
+              {/* Left Utilities: Google Drive, Attach, Broadcast Mode */}
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={onOpenFileUpload}
-                  className="flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 font-bold"
+                  type="button"
+                  onClick={onOpenGoogleDrive}
+                  className="px-2.5 py-1.5 text-slate-300 hover:text-blue-400 hover:bg-white/[0.06] rounded-xl border border-white/10 transition-colors flex items-center gap-1.5 text-[11px]"
+                  title="Import files from Google Drive"
                 >
-                  <Upload className="w-3 h-3" />
-                  <span>+ Ingest Asset</span>
+                  <HardDrive className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="hidden sm:inline">Google Drive</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onOpenFileUpload}
+                  className="px-2.5 py-1.5 text-slate-300 hover:text-purple-400 hover:bg-white/[0.06] rounded-xl border border-white/10 transition-colors flex items-center gap-1.5 text-[11px]"
+                  title="Attach file or dataset for 16-way slice extraction"
+                >
+                  <Upload className="w-3.5 h-3.5 text-purple-400" />
+                  <span className="hidden sm:inline">Attach</span>
+                  {files.length > 0 && (
+                    <span className="w-4 h-4 rounded-full bg-purple-500 text-slate-950 text-[9px] flex items-center justify-center font-bold">
+                      {files.length}
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsQuadBroadcast(!isQuadBroadcast)}
+                  className={`px-2.5 py-1.5 rounded-xl border transition-all flex items-center gap-1 text-[11px] font-bold ${
+                    isQuadBroadcast
+                      ? 'bg-blue-600/30 text-blue-200 border-blue-400/40'
+                      : 'bg-white/[0.04] text-slate-400 border-white/10'
+                  }`}
+                  title="Broadcast to all 4 models or target single model"
+                >
+                  <Columns className="w-3.5 h-3.5" />
+                  <span>{isQuadBroadcast ? '4 Models' : selectedModel}</span>
                 </button>
               </div>
 
-              {files.length === 0 ? (
-                <div
-                  onClick={onOpenFileUpload}
-                  className="p-6 rounded-2xl border-2 border-dashed border-white/10 hover:border-blue-400/40 text-center cursor-pointer space-y-2 bg-white/[0.02] transition-colors"
+              {/* Right: Character count & Send Button */}
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] text-slate-500 hidden md:inline">
+                  {inputText.length} chars • Enter to Send
+                </span>
+
+                <button
+                  type="submit"
+                  disabled={!inputText.trim() || isLoading}
+                  className="flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-30 text-white rounded-2xl text-xs font-bold shadow-lg border border-blue-400/30 transition-all active:scale-95"
                 >
-                  <FileText className="w-8 h-8 text-slate-500 mx-auto" />
-                  <div className="text-slate-300 text-xs font-semibold">No documents attached yet</div>
-                  <p className="text-[11px] text-slate-500">
-                    Click to attach datasets, code, or context files for 16-way slice extraction.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {files.map((f) => (
-                    <div key={f.id} className="p-3 rounded-2xl bg-white/[0.04] border border-white/10 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="truncate font-semibold text-slate-200">{f.name}</div>
-                        <button
-                          onClick={() => onRemoveFile(f.id)}
-                          className="text-slate-500 hover:text-rose-400"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-white/5">
-                        <span>{(f.size / 1024).toFixed(1)} KB • H: {f.shannonEntropy}</span>
-                        <span className="text-emerald-400 font-bold">16 Chunks Sliced</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Context Summary Invariant */}
-              <div className="p-3.5 rounded-2xl bg-emerald-950/20 border border-emerald-500/30 text-emerald-200 text-[11px] space-y-1.5">
-                <div className="font-bold flex items-center gap-1.5">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  Zero-Knowledge Context Isolation
-                </div>
-                <p className="text-[10px] text-emerald-300/80 leading-relaxed font-sans">
-                  All documents undergo Shannon entropy calculation and are partitioned into 16 non-overlapping epistemic chunks for parallel agent verification.
-                </p>
+                  <span>{isQuadBroadcast ? 'Run 4-Model Arena' : 'Send'}</span>
+                  <Send className="w-3.5 h-3.5" />
+                </button>
               </div>
+
             </div>
-          )}
 
-          {/* TAB 3: RESPONSE GRADING & EVALUATION (AI STUDIO STYLE) */}
-          {activeTabLeft === 'eval' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-slate-200 text-xs">Model Output Grading Matrix</span>
-                <span className="text-[10px] text-blue-400 font-mono">RLHF / Heuristic Prior</span>
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed font-sans">
-                Grade model and swarm responses to enforce precision, factuality, and invariant alignment.
-              </p>
-
-              <div className="space-y-3">
-                {messages.filter((m) => m.role === 'assistant').length === 0 ? (
-                  <div className="p-6 text-center text-slate-500 text-xs">
-                    No assistant responses generated yet to grade.
-                  </div>
-                ) : (
-                  messages
-                    .filter((m) => m.role === 'assistant')
-                    .map((msg, idx) => {
-                      const grade = evalScores[msg.id] || { rating: 5, factuality: true, invariant: true, notes: '' };
-                      return (
-                        <div key={msg.id} className="p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-2.5">
-                          <div className="flex items-center justify-between text-[11px]">
-                            <span className="font-bold text-slate-300">Response #{idx + 1} ({msg.modelUsed || 'Gemini'})</span>
-                            <div className="flex items-center gap-1">
-                              {[1, 2, 3, 4, 5].map((star) => (
-                                <button
-                                  key={star}
-                                  onClick={() => handleGrade(msg.id, star)}
-                                  className={`p-0.5 transition-colors ${
-                                    star <= grade.rating ? 'text-amber-400 fill-amber-400' : 'text-slate-600'
-                                  }`}
-                                >
-                                  <Star className="w-3.5 h-3.5 fill-current" />
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          <p className="text-[11px] text-slate-400 line-clamp-2 italic">
-                            "{msg.content}"
-                          </p>
-
-                          <div className="flex items-center justify-between pt-1 border-t border-white/5 text-[10px]">
-                            <span className="text-emerald-400 flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3" /> Invariant Safe
-                            </span>
-                            <span className="text-blue-400">Score: {grade.rating}/5</span>
-                          </div>
-                        </div>
-                      );
-                    })
-                )}
-              </div>
-            </div>
-          )}
-
-        </div>
-
-        {/* ----------------------------------------------------------------------- */}
-        {/* RIGHT PANE: MULTI-TURN CHAT & COMPARE STREAM VIEWER (7 cols)            */}
-        {/* ----------------------------------------------------------------------- */}
-        <div className="lg:col-span-7 flex flex-col h-full overflow-hidden bg-slate-900/10">
-          
-          {/* Stream Header */}
-          <div className="px-6 py-2.5 bg-slate-900/30 border-b border-white/10 flex items-center justify-between text-xs font-mono">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-blue-400" />
-              <span className="font-bold text-slate-200">
-                {compareMode ? `Side-by-Side: ${selectedModel} vs ${secondaryModel}` : `Interactive Dialogue Stream (${selectedModel})`}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] text-emerald-400">● STREAM READY</span>
-            </div>
           </div>
 
-          {/* Chat Messages Scrolling Area */}
-          <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 space-y-4">
-            {messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full min-h-[280px] text-center space-y-4 p-4">
-                <div className="w-14 h-14 rounded-3xl bg-blue-600/20 border border-white/10 flex items-center justify-center shadow-lg backdrop-blur-xl">
-                  <Sparkles className="w-7 h-7 text-blue-400" />
-                </div>
-                <div className="space-y-1 max-w-md">
-                  <h3 className="text-lg font-bold font-sans text-slate-100">ArgOS AI Studio Prompt Engine</h3>
-                  <p className="text-xs text-slate-400">
-                    Write prompts, command Monte Carlo swarms of up to 20 agents, inspect live reasoning context, or compare model outputs side-by-side.
-                  </p>
-                </div>
-              </div>
-            ) : (
-              messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`flex flex-col space-y-1.5 ${
-                    msg.role === 'user' ? 'items-end' : 'items-start'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400">
-                    <span>{msg.role === 'user' ? 'OPERATOR' : 'ARGOS AGENT ENGINE'}</span>
-                    <span>•</span>
-                    <span>{new Date(msg.timestamp).toLocaleTimeString()}</span>
-                    {msg.modelUsed && (
-                      <span className="text-blue-300 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-400/20 text-[9px]">
-                        {msg.modelUsed}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Message Bubble */}
-                  <div
-                    className={`p-4 rounded-2xl text-xs leading-relaxed max-w-[90%] whitespace-pre-wrap font-mono ${
-                      msg.role === 'user'
-                        ? 'bg-blue-600/25 text-blue-100 border border-blue-400/40 rounded-br-none shadow-lg backdrop-blur-xl'
-                        : 'bg-white/[0.04] text-slate-200 border border-white/10 rounded-bl-none shadow-xl backdrop-blur-2xl'
-                    }`}
-                  >
-                    {msg.content}
-
-                    {/* Compare Mode Side-by-Side Simulation when active */}
-                    {compareMode && msg.role === 'assistant' && (
-                      <div className="mt-3 pt-3 border-t border-white/10 grid grid-cols-2 gap-3">
-                        <div className="p-2.5 rounded-xl bg-blue-950/20 border border-blue-500/30 text-[11px]">
-                          <div className="font-bold text-blue-300 pb-1 mb-1 border-b border-white/5">{selectedModel}</div>
-                          <p className="text-slate-300 text-[10px] leading-relaxed">
-                            {msg.content.slice(0, 180)}...
-                          </p>
-                        </div>
-                        <div className="p-2.5 rounded-xl bg-purple-950/20 border border-purple-500/30 text-[11px]">
-                          <div className="font-bold text-purple-300 pb-1 mb-1 border-b border-white/5">{secondaryModel}</div>
-                          <p className="text-purple-200 text-[10px] leading-relaxed">
-                            [Alternative Formulation] Re-evaluated hypothesis with increased heuristic skepticism: zero invariant violations confirmed.
-                          </p>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Swarm Launch Suggestion Box */}
-                    {msg.suggestedSwarm && (
-                      <div className="mt-3.5 pt-3 border-t border-white/10 space-y-2">
-                        <div className="flex items-center justify-between text-xs font-mono text-blue-400 font-semibold">
-                          <span className="flex items-center gap-1.5">
-                            <Sparkles className="w-3.5 h-3.5" />
-                            Suggested Swarm: {msg.suggestedSwarm.mode === 'monte_carlo_consensus' ? 'Monte Carlo' : 'Distributed'} ({msg.suggestedSwarm.agentCount} Agents)
-                          </span>
-                        </div>
-
-                        <div className="space-y-1 text-[11px] text-slate-300 bg-black/20 p-2.5 rounded-xl border border-white/5">
-                          {msg.suggestedSwarm.taskBreakdown.map((tb, i) => (
-                            <div key={i} className="flex items-center gap-2">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
-                              <span>{tb}</span>
-                            </div>
-                          ))}
-                        </div>
-
-                        <div className="flex items-center gap-2 pt-1">
-                          <button
-                            onClick={() =>
-                              onDeploySwarm(
-                                messages[messages.length - 2]?.content || 'Execute Swarm Mission',
-                                msg.suggestedSwarm!.mode,
-                                msg.suggestedSwarm!.agentCount
-                              )
-                            }
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl text-xs font-mono font-semibold shadow-md border border-blue-400/30 transition-all active:scale-95"
-                          >
-                            <Play className="w-3.5 h-3.5" />
-                            <span>Deploy {msg.suggestedSwarm.agentCount} Agents Now</span>
-                          </button>
-
-                          <button
-                            onClick={() => onSwitchLayer(3)}
-                            className="px-3 py-1.5 bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 rounded-xl text-xs font-mono border border-white/10 transition-all"
-                          >
-                            View in Hyper-Deck (L3)
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
-
-            {isLoading && (
-              <div className="flex items-center gap-3 p-3.5 bg-white/[0.04] border border-white/10 rounded-2xl text-xs font-mono text-slate-300 backdrop-blur-xl shadow-lg">
-                <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
-                <span>ArgOS multi-model intelligence runtime synthesizing reasoning...</span>
-              </div>
-            )}
-            <div ref={chatEndRef} />
-          </div>
-
-          {/* Multiline Rich Prompt Input Bar (Full Height Context Aware) */}
-          <div className="p-3 md:p-4 bg-slate-900/40 border-t border-white/10 backdrop-blur-2xl">
-            <form onSubmit={handleSubmit} className="space-y-2">
-              <div className="flex flex-col bg-white/[0.04] border border-white/10 focus-within:border-blue-400/60 rounded-2xl p-2.5 shadow-xl backdrop-blur-2xl transition-all">
-                
-                <textarea
-                  ref={textareaRef}
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder='Ask ArgOS or command: "Set up a Monte Carlo of 16 agents to analyze this portfolio..." (Shift+Enter for newline)'
-                  rows={2}
-                  className="w-full bg-transparent text-slate-100 placeholder-slate-500 text-xs font-mono outline-none resize-none px-1"
-                  disabled={isLoading}
-                />
-
-                <div className="flex items-center justify-between pt-2 border-t border-white/5 mt-1">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={onOpenFileUpload}
-                      className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-white/[0.06] rounded-lg transition-colors flex items-center gap-1 text-[11px] font-mono"
-                      title="Upload file or dataset"
-                    >
-                      <Upload className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Attach</span>
-                    </button>
-                    <span className="text-[10px] text-slate-500 font-mono hidden md:inline">
-                      {inputText.length} characters
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="submit"
-                      disabled={!inputText.trim() || isLoading}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-30 text-white rounded-xl text-xs font-mono font-bold shadow-md border border-blue-400/30 transition-all active:scale-95"
-                    >
-                      <span>Run</span>
-                      <Send className="w-3 h-3" />
-                    </button>
-                  </div>
-                </div>
-
-              </div>
-            </form>
-          </div>
-
-        </div>
-
+        </form>
       </div>
 
     </div>

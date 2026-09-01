@@ -156,9 +156,34 @@ export interface IngestedFile {
   uploadedAt: string;
 }
 
+export interface FiveAxisScore {
+  reasoning: number; // 0 - 100: Mathematical rigour & chain-of-thought
+  invariants: number; // 0 - 100: $70.00 floor & safety constraint compliance
+  velocity: number; // 0 - 100: Time-to-first-token & tokens/second
+  factuality: number; // 0 - 100: Grounding & anti-hallucination precision
+  contextFidelity: number; // 0 - 100: Shannon entropy & context retention
+  compositeScore: number; // 0 - 100
+  critique?: string;
+}
+
+export interface QuadModelResponse {
+  modelId: AiModelProvider;
+  name: string;
+  roleTag: string;
+  color: string;
+  badge: string;
+  content: string;
+  latencyMs: number;
+  tokensGenerated: number;
+  throughputTps: number;
+  scores: FiveAxisScore;
+  status: 'streaming' | 'completed' | 'idle' | 'error';
+  invariantPassed: boolean;
+}
+
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant' | 'system' | 'orchestrator';
+  role: 'user' | 'assistant' | 'system' | 'orchestrator' | 'arbiter';
   content: string;
   timestamp: string;
   modelUsed?: string;
@@ -177,6 +202,14 @@ export interface ChatMessage {
   sideBySideComparison?: {
     modelA: { name: string; content: string; latencyMs: number; tokens: number };
     modelB: { name: string; content: string; latencyMs: number; tokens: number };
+  };
+  quadResponses?: QuadModelResponse[];
+  epistemicArbiterVerdict?: {
+    winnerModelId: AiModelProvider;
+    winnerModelName: string;
+    consensusSummary: string;
+    axisBreakdown: string;
+    governorApproved: boolean;
   };
 }
 
