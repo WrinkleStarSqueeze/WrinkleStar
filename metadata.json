@@ -1,0 +1,6 @@
+{
+  "name": "ArgOS Apex Agent Workspace",
+  "description": "Multi-layered governed intelligence console with 20-agent Monte Carlo orchestration, inter-agent communication, and deep state manifold telemetry.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
